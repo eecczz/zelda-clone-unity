@@ -5,7 +5,7 @@ using UnityEngine;
 /// 플레이어를 향해 천천히 접근하는 적. 체력이 0이 되면 즉시 파괴되며 사망 위치를 알린다.
 /// </summary>
 [RequireComponent(typeof(Collider))]
-public class Enemy : MonoBehaviour
+public class Enemy : MonoBehaviour, IDamageable
 {
     [Header("스탯")]
     [SerializeField] private int maxHealth = 1;
@@ -26,12 +26,17 @@ public class Enemy : MonoBehaviour
 
     public bool IsDead => isDead;
 
-    void Awake()
+    /// <summary>파생 클래스가 쓰는 추격 대상.</summary>
+    protected Transform Target => target;
+    protected float MoveSpeed => moveSpeed;
+    protected float RotationSpeed => rotationSpeed;
+
+    protected virtual void Awake()
     {
         health = Mathf.Max(1, maxHealth);
     }
 
-    void Start()
+    protected virtual void Start()
     {
         if (target == null)
         {
@@ -46,7 +51,7 @@ public class Enemy : MonoBehaviour
         target = newTarget;
     }
 
-    void Update()
+    protected virtual void Update()
     {
         if (isDead || target == null) return;
 
@@ -59,9 +64,24 @@ public class Enemy : MonoBehaviour
 
         Vector3 dir = toTarget / distance;
 
-        if (distance > stopDistance)
-            transform.position += dir * moveSpeed * Time.deltaTime;
+        UpdateBehaviour(dir, distance);
+        FaceDirection(dir);
+    }
 
+    /// <summary>거리에 따른 행동. 원거리 적은 이걸 오버라이드해 거리 유지 + 사격을 한다.</summary>
+    protected virtual void UpdateBehaviour(Vector3 dirToTarget, float distance)
+    {
+        if (distance > stopDistance)
+            MoveInDirection(dirToTarget, moveSpeed);
+    }
+
+    protected void MoveInDirection(Vector3 dir, float speed)
+    {
+        transform.position += dir * speed * Time.deltaTime;
+    }
+
+    protected void FaceDirection(Vector3 dir)
+    {
         Quaternion look = Quaternion.LookRotation(dir);
         transform.rotation = Quaternion.Slerp(transform.rotation, look, rotationSpeed * Time.deltaTime);
     }

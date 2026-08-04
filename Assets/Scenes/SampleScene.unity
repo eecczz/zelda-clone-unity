@@ -529,6 +529,9 @@ MonoBehaviour:
   enemyMask:
     serializedVersion: 2
     m_Bits: 4294967295
+  reflectProjectiles: 1
+  reflectSpeedMultiplier: 1.5
+  reflectVfxColor: {r: 1, g: 0.85, b: 0.3, a: 1}
   hitStopScale: 0.05
   hitStopDuration: 0.06
   hitVfxPrefab: {fileID: 0}
@@ -673,7 +676,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cc842a2475eb64c7f8177eb3da82510e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  enemyPrefab: {fileID: 325909152979131813, guid: 8201a8fa777644bae824e8d5aa2d283c, type: 3}
+  meleeEnemyPrefab: {fileID: 325909152979131813, guid: 8201a8fa777644bae824e8d5aa2d283c, type: 3}
+  rangedEnemyPrefab: {fileID: 6183864248318251241, guid: 09fe1ffd339374149b961a85b06db773, type: 3}
+  rangedSpawnChance: 0.3
   player: {fileID: 0}
   spawnInterval: 2
   startDelay: 1

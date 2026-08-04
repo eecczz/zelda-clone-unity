@@ -7,8 +7,12 @@ using UnityEngine;
 public class EnemySpawner : MonoBehaviour
 {
     [Header("참조")]
-    [Tooltip("스폰할 Enemy 프리팹")]
-    [SerializeField] private Enemy enemyPrefab;
+    [Tooltip("근접 적 프리팹")]
+    [SerializeField] private Enemy meleeEnemyPrefab;
+    [Tooltip("원거리 적 프리팹. 비워두면 근접만 스폰된다.")]
+    [SerializeField] private RangedEnemy rangedEnemyPrefab;
+    [Tooltip("원거리 적이 뽑힐 확률. 0.3 = 근접:원거리 7:3")]
+    [SerializeField, Range(0f, 1f)] private float rangedSpawnChance = 0.3f;
     [Tooltip("비워두면 Player 태그를 가진 오브젝트를 자동으로 찾는다.")]
     [SerializeField] private Transform player;
 
@@ -46,7 +50,8 @@ public class EnemySpawner : MonoBehaviour
 
     void Update()
     {
-        if (enemyPrefab == null || player == null) return;
+        if (player == null) return;
+        if (meleeEnemyPrefab == null && rangedEnemyPrefab == null) return;
         if (Time.time < nextSpawnTime) return;
 
         nextSpawnTime = Time.time + spawnInterval;
@@ -58,6 +63,9 @@ public class EnemySpawner : MonoBehaviour
 
     void Spawn()
     {
+        Enemy prefab = PickPrefab();
+        if (prefab == null) return;
+
         float angle = Random.Range(0f, Mathf.PI * 2f);
         float radius = Random.Range(minRadius, maxRadius);
 
@@ -65,11 +73,20 @@ public class EnemySpawner : MonoBehaviour
         Vector3 position = player.position + offset;
         position.y = player.position.y + spawnHeight;
 
-        Enemy enemy = Instantiate(enemyPrefab, position, Quaternion.identity);
+        Enemy enemy = Instantiate(prefab, position, Quaternion.identity);
         enemy.SetTarget(player);
 
         alive.Add(enemy);
         enemy.Died += HandleEnemyDied;
+    }
+
+    /// <summary>비율에 따라 근접/원거리 중 하나를 고른다. 한쪽이 비어 있으면 있는 쪽으로.</summary>
+    Enemy PickPrefab()
+    {
+        if (rangedEnemyPrefab == null) return meleeEnemyPrefab;
+        if (meleeEnemyPrefab == null) return rangedEnemyPrefab;
+
+        return Random.value < rangedSpawnChance ? rangedEnemyPrefab : meleeEnemyPrefab;
     }
 
     void HandleEnemyDied(Enemy enemy)

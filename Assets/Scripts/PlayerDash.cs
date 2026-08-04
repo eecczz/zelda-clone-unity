@@ -28,8 +28,16 @@ public class PlayerDash : MonoBehaviour
     [Header("베기 판정")]
     [Tooltip("이동 경로 주변 이 반경 안의 적을 벤다. (캐릭터 반지름에 더해진다)")]
     [SerializeField] private float slashRadius = 0.6f;
-    [Tooltip("적이 속한 레이어. 기본값(Everything)이어도 Enemy 컴포넌트가 있는 것만 판정한다.")]
+    [Tooltip("적/투사체가 속한 레이어. 기본값(Everything)이어도 컴포넌트 유무로 다시 걸러낸다.")]
     [SerializeField] private LayerMask enemyMask = ~0;
+
+    [Header("일섬 반격")]
+    [Tooltip("대시로 스친 투사체를 되받아친다.")]
+    [SerializeField] private bool reflectProjectiles = true;
+    [Tooltip("반사된 투사체의 속도 배율")]
+    [SerializeField] private float reflectSpeedMultiplier = 1.5f;
+    [Tooltip("반격 이펙트 색")]
+    [SerializeField] private Color reflectVfxColor = new Color(1f, 0.85f, 0.3f);
 
     [Header("타격감")]
     [Tooltip("적 처치 순간 적용할 Time.timeScale")]
@@ -59,9 +67,12 @@ public class PlayerDash : MonoBehaviour
 
     // 한 번의 대시에서 이미 벤 적 — 같은 적을 여러 프레임에 걸쳐 중복 판정하지 않게
     private readonly HashSet<Enemy> hitThisDash = new HashSet<Enemy>();
+    // 한 번의 대시에서 이미 되받아친 투사체 — 같은 돌을 매 프레임 다시 튕기지 않게
+    private readonly HashSet<RockProjectile> reflectedThisDash = new HashSet<RockProjectile>();
     private readonly Collider[] overlapBuffer = new Collider[32];
     private Coroutine hitStopRoutine;
     private int killsThisDash;
+    private Vector3 dashDirection = Vector3.forward;
 
     /// <summary>돌진 중인지 여부. PlayerMovement가 일반 이동을 막는 데 사용.</summary>
     public bool IsDashing => isDashing;
@@ -181,6 +192,7 @@ public class PlayerDash : MonoBehaviour
         delta.y = 0f;
 
         hitThisDash.Clear();
+        reflectedThisDash.Clear();
         killsThisDash = 0;
 
         // 거의 제자리면 대시를 생략하되 쿨다운은 동일하게 적용
@@ -188,7 +200,8 @@ public class PlayerDash : MonoBehaviour
         {
             isDashing = true;
 
-            transform.rotation = Quaternion.LookRotation(delta.normalized);
+            dashDirection = delta.normalized;
+            transform.rotation = Quaternion.LookRotation(dashDirection);
 
             Vector3 velocity = delta / dashDuration;
             float elapsed = 0f;
@@ -216,6 +229,7 @@ public class PlayerDash : MonoBehaviour
         cooldownEndTime = chain ? 0f : Time.unscaledTime + cooldown;
 
         hitThisDash.Clear();
+        reflectedThisDash.Clear();
     }
 
     /// <summary>
@@ -238,18 +252,45 @@ public class PlayerDash : MonoBehaviour
             Collider col = overlapBuffer[i];
             if (col == null) continue;
 
-            // 자기 자신/바닥 등은 Enemy 컴포넌트가 없으므로 자연히 걸러진다
+            // 자기 자신/바닥 등은 Enemy/RockProjectile 컴포넌트가 없으므로 자연히 걸러진다
             Enemy enemy = col.GetComponentInParent<Enemy>();
-            if (enemy == null || enemy.IsDead) continue;
-            if (!hitThisDash.Add(enemy)) continue;   // 이미 이번 대시에서 벤 적
+            if (enemy != null)
+            {
+                SlashEnemy(enemy);
+                continue;
+            }
 
-            Vector3 deathPosition = enemy.transform.position;
-            enemy.Kill();
+            if (!reflectProjectiles) continue;
 
-            killsThisDash++;
-            PlayHitVfx(deathPosition);
-            TriggerHitStop();
+            RockProjectile rock = col.GetComponentInParent<RockProjectile>();
+            if (rock != null) ReflectProjectile(rock);
         }
+    }
+
+    void SlashEnemy(Enemy enemy)
+    {
+        if (enemy.IsDead) return;
+        if (!hitThisDash.Add(enemy)) return;   // 이미 이번 대시에서 벤 적
+
+        Vector3 deathPosition = enemy.transform.position;
+        enemy.Kill();
+
+        killsThisDash++;
+        PlayHitVfx(deathPosition);
+        TriggerHitStop();
+    }
+
+    /// <summary>일섬 반격 — 스친 돌을 대시 방향으로 되받아친다.</summary>
+    void ReflectProjectile(RockProjectile rock)
+    {
+        if (rock.IsReflected) return;              // 이미 아군 투사체
+        if (!reflectedThisDash.Add(rock)) return;  // 같은 대시에서 중복 반사 방지
+
+        rock.Reflect(dashDirection, reflectSpeedMultiplier);
+
+        // 반격도 처치와 같은 타격감을 준다 (쿨다운 리셋은 처치에만)
+        SlashVfx.Play(rock.transform.position, reflectVfxColor);
+        TriggerHitStop();
     }
 
     void PlayHitVfx(Vector3 position)
@@ -309,6 +350,7 @@ public class PlayerDash : MonoBehaviour
         isDashing = false;
         hitStopRoutine = null;   // 컴포넌트가 꺼지면 코루틴도 함께 중단된다
         hitThisDash.Clear();
+        reflectedThisDash.Clear();
         RestoreTimeScale();
     }
 }
