@@ -37,7 +37,7 @@ public class PlayerDash : MonoBehaviour
     [Tooltip("반사된 투사체의 속도 배율")]
     [SerializeField] private float reflectSpeedMultiplier = 1.5f;
     [Tooltip("반격 이펙트 색")]
-    [SerializeField] private Color reflectVfxColor = new Color(1f, 0.85f, 0.3f);
+    [SerializeField] private Color reflectVfxColor = LightningPalette.Reflect;
 
     [Header("타격감")]
     [Tooltip("적 처치 순간 적용할 Time.timeScale")]
@@ -47,7 +47,41 @@ public class PlayerDash : MonoBehaviour
     [Tooltip("처치 이펙트 프리팹. 비워두면 코드로 생성한 파티클이 재생된다.")]
     [SerializeField] private GameObject hitVfxPrefab;
     [Tooltip("코드 생성 파티클의 색")]
-    [SerializeField] private Color hitVfxColor = new Color(1f, 0.35f, 0.2f);
+    [SerializeField] private Color hitVfxColor = LightningPalette.Kill;
+
+    [Header("번개 연출")]
+    [Tooltip("대시 궤적에 그려지는 본체 번개")]
+    [SerializeField] private LightningBoltSettings dashBolt = new LightningBoltSettings();
+    [Tooltip("처치 지점에서 터지는 잔가지 번개")]
+    [SerializeField] private LightningBoltSettings killSparkBolt = new LightningBoltSettings
+    {
+        minSegments = 4,
+        maxSegments = 7,
+        amplitude = 0.25f,
+        glowWidth = 0.3f,
+        coreWidth = 0.08f,
+        minDuration = 0.12f,
+        maxDuration = 0.2f,
+        branchChance = 0.3f,
+        branchLengthRatio = 0.4f,
+    };
+    [Tooltip("처치당 뻗는 잔가지 개수")]
+    [SerializeField] private int killSparkMin = 2;
+    [SerializeField] private int killSparkMax = 4;
+    [Tooltip("잔가지 길이 (유닛)")]
+    [SerializeField] private float killSparkLength = 1.6f;
+    [Tooltip("대시 도착 지점에 터지는 청백 파티클의 색")]
+    [SerializeField] private Color dashVfxColor = LightningPalette.Glow;
+
+    [Header("화면 플래시")]
+    [SerializeField] private float killFlashAlpha = 0.25f;
+    [SerializeField] private float killFlashDuration = 0.1f;
+
+    [Header("조준선 지터")]
+    [Tooltip("조준선을 몇 마디로 쪼갤지. 많을수록 촘촘하게 떨린다.")]
+    [SerializeField] private int aimLineSegments = 10;
+    [Tooltip("조준선 떨림 폭. 과하면 조준이 안 보인다.")]
+    [SerializeField] private float aimLineJitter = 0.05f;
 
     [Header("참조")]
     [Tooltip("조준선. 비워두면 자식/본인에서 자동으로 찾는다.")]
@@ -88,7 +122,7 @@ public class PlayerDash : MonoBehaviour
         if (aimLine != null)
         {
             aimLine.useWorldSpace = true;
-            aimLine.positionCount = 2;
+            aimLine.positionCount = Mathf.Max(2, aimLineSegments + 1);
             aimLine.enabled = false;
         }
     }
@@ -96,6 +130,13 @@ public class PlayerDash : MonoBehaviour
     void Update()
     {
         if (isDashing) return;
+
+        // 시작 전 / 사망 연출 / 게임오버 중에는 조준 자체를 받지 않는다
+        if (!CanAct())
+        {
+            if (isAiming) EndAim();
+            return;
+        }
 
         bool onCooldown = Time.unscaledTime < cooldownEndTime;
 
@@ -119,6 +160,35 @@ public class PlayerDash : MonoBehaviour
                 StartCoroutine(DashRoutine(aimTarget));
             }
         }
+    }
+
+    /// <summary>
+    /// 조준 입력을 받아도 되는지. GameManager가 없으면(단독 테스트 씬) 항상 허용한다.
+    /// 게임을 시작시킨 프레임은 제외 — 그 클릭이 그대로 조준으로 이어지면 안 된다.
+    /// </summary>
+    bool CanAct()
+    {
+        GameManager game = GameManager.Instance;
+        if (game == null) return true;
+        return game.IsPlaying && !game.StartedThisFrame;
+    }
+
+    /// <summary>
+    /// 사망 시 GameManager가 호출. 조준과 히트스톱을 모두 정리하고 시간을 원상복구한다.
+    /// (호출 직후 GameManager가 사망 감속을 걸기 때문에 여기서는 1로 되돌려 두면 된다)
+    /// </summary>
+    public void CancelAll()
+    {
+        StopAllCoroutines();
+        hitStopRoutine = null;
+
+        isAiming = false;
+        isDashing = false;
+        hitThisDash.Clear();
+        reflectedThisDash.Clear();
+
+        if (aimLine != null) aimLine.enabled = false;
+        RestoreTimeScale();
     }
 
     void BeginAim()
@@ -178,12 +248,39 @@ public class PlayerDash : MonoBehaviour
         return origin + flat;
     }
 
+    /// <summary>
+    /// 조준선을 여러 마디로 쪼개고 매 프레임 미세하게 흔들어 전기가 흐르는 느낌을 준다.
+    /// 양 끝은 흔들지 않는다 — 조준점이 떨리면 어디를 겨누는지 알 수 없게 된다.
+    /// </summary>
     void DrawAimLine(Vector3 from, Vector3 to)
     {
         if (aimLine == null) return;
+
         Vector3 up = Vector3.up * aimLineHeight;
-        aimLine.SetPosition(0, from + up);
-        aimLine.SetPosition(1, to + up);
+        Vector3 start = from + up;
+        Vector3 end = to + up;
+
+        int segments = Mathf.Max(1, aimLineSegments);
+        if (aimLine.positionCount != segments + 1) aimLine.positionCount = segments + 1;
+
+        Vector3 axis = end - start;
+        Vector3 dir = axis.sqrMagnitude > 0.0001f ? axis.normalized : transform.forward;
+        Vector3 side = Vector3.Cross(dir, Vector3.up).normalized;
+
+        for (int i = 0; i <= segments; i++)
+        {
+            float t = i / (float)segments;
+            Vector3 point = Vector3.Lerp(start, end, t);
+
+            if (i > 0 && i < segments)
+            {
+                float taper = Mathf.Sin(t * Mathf.PI);
+                point += side * (Random.Range(-aimLineJitter, aimLineJitter) * taper);
+                point += Vector3.up * (Random.Range(-aimLineJitter, aimLineJitter) * taper * 0.5f);
+            }
+
+            aimLine.SetPosition(i, point);
+        }
     }
 
     IEnumerator DashRoutine(Vector3 target)
@@ -202,6 +299,8 @@ public class PlayerDash : MonoBehaviour
 
             dashDirection = delta.normalized;
             transform.rotation = Quaternion.LookRotation(dashDirection);
+
+            Vector3 dashStart = transform.position;
 
             Vector3 velocity = delta / dashDuration;
             float elapsed = 0f;
@@ -222,11 +321,21 @@ public class PlayerDash : MonoBehaviour
             }
 
             isDashing = false;
+
+            // 궤적을 한 줄기 번개로 남긴다 — 대시가 "지나간 자리"를 보여주는 게 핵심
+            Vector3 boltHeight = Vector3.up * aimLineHeight;
+            LightningBolt.Create(dashStart + boltHeight, transform.position + boltHeight, dashBolt);
+
+            SlashVfx.Play(transform.position + Vector3.up * 0.5f, dashVfxColor, 14, 0.25f, 5f);
         }
 
         // 하나라도 베었으면 쿨다운 없이 바로 다음 조준 가능 (연속 베기 체인)
         bool chain = resetCooldownOnKill && killsThisDash > 0;
         cooldownEndTime = chain ? 0f : Time.unscaledTime + cooldown;
+
+        // 콤보는 쿨다운보다 관대하게 — 반사만 성공해도 끊기지 않는다
+        if (ScoreSystem.Instance != null)
+            ScoreSystem.Instance.OnDashResolved(killsThisDash > 0 || reflectedThisDash.Count > 0);
 
         hitThisDash.Clear();
         reflectedThisDash.Clear();
@@ -276,8 +385,20 @@ public class PlayerDash : MonoBehaviour
         enemy.Kill();
 
         killsThisDash++;
+        if (ScoreSystem.Instance != null) ScoreSystem.Instance.RegisterKill(KillSource.Slash);
+
         PlayHitVfx(deathPosition);
+        PlayKillSparks(deathPosition);
         TriggerHitStop();
+    }
+
+    /// <summary>처치 지점에서 잔가지 번개를 터뜨리고 화면을 한 번 번쩍인다.</summary>
+    void PlayKillSparks(Vector3 position)
+    {
+        int count = Random.Range(killSparkMin, killSparkMax + 1);
+        LightningBolt.Burst(position + Vector3.up * 0.5f, count, killSparkLength, killSparkBolt);
+
+        ScreenFlash.Play(LightningPalette.Flash, killFlashAlpha, killFlashDuration);
     }
 
     /// <summary>일섬 반격 — 스친 돌을 대시 방향으로 되받아친다.</summary>

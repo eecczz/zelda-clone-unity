@@ -19,7 +19,20 @@ public class RockProjectile : MonoBehaviour
     [Header("반사 후")]
     [Tooltip("반사되면 스스로도 조금 커져서 눈에 띄게 한다.")]
     [SerializeField] private float reflectedScaleMultiplier = 1.3f;
-    [SerializeField] private Color reflectedColor = new Color(1f, 0.85f, 0.3f);
+    [SerializeField] private Color reflectedColor = LightningPalette.Reflect;
+    [Tooltip("반사된 돌이 적을 맞혔을 때 터지는 잔가지 번개")]
+    [SerializeField] private LightningBoltSettings killSparkBolt = new LightningBoltSettings
+    {
+        minSegments = 4,
+        maxSegments = 7,
+        amplitude = 0.25f,
+        glowWidth = 0.3f,
+        coreWidth = 0.08f,
+        minDuration = 0.12f,
+        maxDuration = 0.2f,
+        branchChance = 0.3f,
+        branchLengthRatio = 0.4f,
+    };
 
     [Header("피격 훅")]
     [Tooltip("플레이어에게 넣을 피해량. IDamageable 구현체가 없으면 로그만 남는다.")]
@@ -154,7 +167,13 @@ public class RockProjectile : MonoBehaviour
             {
                 Vector3 deathPosition = enemy.transform.position;
                 enemy.Kill();
+
+                if (ScoreSystem.Instance != null)
+                    ScoreSystem.Instance.RegisterKill(KillSource.Reflect);
+
                 SlashVfx.Play(deathPosition, reflectedColor);
+                LightningBolt.Burst(deathPosition + Vector3.up * 0.5f, Random.Range(2, 5), 1.6f, killSparkBolt);
+                ScreenFlash.Play(LightningPalette.Flash, 0.25f, 0.1f);
             }
         }
         else

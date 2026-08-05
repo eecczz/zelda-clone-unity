@@ -17,12 +17,22 @@ public class EnemySpawner : MonoBehaviour
     [SerializeField] private Transform player;
 
     [Header("스폰")]
-    [Tooltip("스폰 간격 (초)")]
-    [SerializeField] private float spawnInterval = 2f;
     [Tooltip("첫 스폰까지의 지연 (초)")]
     [SerializeField] private float startDelay = 1f;
-    [Tooltip("동시에 존재할 수 있는 최대 마리수")]
-    [SerializeField] private int maxAlive = 10;
+
+    [Header("난이도 상승")]
+    [Tooltip("이 시간에 걸쳐 최대 난이도까지 올라간다 (초)")]
+    [SerializeField] private float rampDuration = 120f;
+    [Tooltip("난이도 진행 곡선. 가로축=경과 비율, 세로축=난이도(0~1)")]
+    [SerializeField] private AnimationCurve difficultyCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+    [Tooltip("시작 스폰 간격 (초)")]
+    [SerializeField] private float startSpawnInterval = 2f;
+    [Tooltip("최대 난이도에서의 스폰 간격 (초)")]
+    [SerializeField] private float endSpawnInterval = 0.45f;
+    [Tooltip("시작 최대 동시 마리수")]
+    [SerializeField] private int startMaxAlive = 6;
+    [Tooltip("최대 난이도에서의 최대 동시 마리수")]
+    [SerializeField] private int endMaxAlive = 24;
 
     [Header("스폰 위치")]
     [Tooltip("플레이어로부터의 최소 거리")]
@@ -52,13 +62,34 @@ public class EnemySpawner : MonoBehaviour
     {
         if (player == null) return;
         if (meleeEnemyPrefab == null && rangedEnemyPrefab == null) return;
+
+        // 시작 전/게임오버 중에는 스폰하지 않고, 첫 스폰 타이머를 계속 미뤄둔다
+        if (GameManager.Instance != null && !GameManager.Instance.IsPlaying)
+        {
+            nextSpawnTime = Time.time + startDelay;
+            return;
+        }
+
         if (Time.time < nextSpawnTime) return;
 
-        nextSpawnTime = Time.time + spawnInterval;
+        float difficulty = CurrentDifficulty();
+        nextSpawnTime = Time.time + Mathf.Lerp(startSpawnInterval, endSpawnInterval, difficulty);
 
+        int maxAlive = Mathf.RoundToInt(Mathf.Lerp(startMaxAlive, endMaxAlive, difficulty));
         if (alive.Count >= maxAlive) return;
 
         Spawn();
+    }
+
+    /// <summary>경과 시간을 0~1 난이도로 환산한다.</summary>
+    float CurrentDifficulty()
+    {
+        float playTime = GameManager.Instance != null
+            ? GameManager.Instance.PlayTime
+            : Time.timeSinceLevelLoad;
+
+        float t = rampDuration > 0f ? Mathf.Clamp01(playTime / rampDuration) : 1f;
+        return Mathf.Clamp01(difficultyCurve.Evaluate(t));
     }
 
     void Spawn()

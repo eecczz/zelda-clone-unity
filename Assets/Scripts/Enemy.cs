@@ -14,6 +14,11 @@ public class Enemy : MonoBehaviour, IDamageable
     [Tooltip("플레이어에게 이 거리까지 붙으면 더 접근하지 않는다.")]
     [SerializeField] private float stopDistance = 1f;
 
+    [Header("접촉 공격")]
+    [Tooltip("이 거리 안에 들어오면 플레이어에게 피해를 준다. 대시 중에는 무효.")]
+    [SerializeField] private float contactDistance = 1.2f;
+    [SerializeField] private int contactDamage = 1;
+
     /// <summary>아무 적이나 죽었을 때 사망 위치를 알린다. (VFX/사운드/스코어용)</summary>
     public static event Action<Vector3> AnyEnemyDied;
 
@@ -21,6 +26,8 @@ public class Enemy : MonoBehaviour, IDamageable
     public event Action<Enemy> Died;
 
     private Transform target;
+    private IDamageable targetDamageable;
+    private PlayerDash targetDash;
     private int health;
     private bool isDead;
 
@@ -43,12 +50,22 @@ public class Enemy : MonoBehaviour, IDamageable
             GameObject player = GameObject.FindGameObjectWithTag("Player");
             if (player != null) target = player.transform;
         }
+
+        CacheTargetComponents();
     }
 
     /// <summary>스포너가 스폰 직후 추격 대상을 지정한다.</summary>
     public void SetTarget(Transform newTarget)
     {
         target = newTarget;
+        CacheTargetComponents();
+    }
+
+    void CacheTargetComponents()
+    {
+        if (target == null) return;
+        targetDamageable = target.GetComponentInParent<IDamageable>();
+        targetDash = target.GetComponentInParent<PlayerDash>();
     }
 
     protected virtual void Update()
@@ -66,6 +83,17 @@ public class Enemy : MonoBehaviour, IDamageable
 
         UpdateBehaviour(dir, distance);
         FaceDirection(dir);
+
+        if (distance <= contactDistance) TryContactDamage();
+    }
+
+    /// <summary>몸으로 밀어붙여 피해를 준다. 대시 중인 플레이어는 무적.</summary>
+    void TryContactDamage()
+    {
+        if (targetDash != null && targetDash.IsDashing) return;
+        if (targetDamageable == null || targetDamageable.IsDead) return;
+
+        targetDamageable.TakeDamage(contactDamage);
     }
 
     /// <summary>거리에 따른 행동. 원거리 적은 이걸 오버라이드해 거리 유지 + 사격을 한다.</summary>
