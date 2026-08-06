@@ -2,7 +2,9 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// 플레이어 주변 링(minRadius~maxRadius) 위 랜덤 위치에 주기적으로 적을 스폰한다.
+/// 야생 적 스포너. 플레이어 주변 링(minRadius~maxRadius) 위에 드문드문 적을 흘려보내
+/// 거점 사이를 이동하는 동안 필드가 완전히 비지 않게 하는 양념 역할이다.
+/// 실제 밀도는 EnemyCamp가 담당한다.
 /// </summary>
 public class EnemySpawner : MonoBehaviour
 {
@@ -26,13 +28,13 @@ public class EnemySpawner : MonoBehaviour
     [Tooltip("난이도 진행 곡선. 가로축=경과 비율, 세로축=난이도(0~1)")]
     [SerializeField] private AnimationCurve difficultyCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
     [Tooltip("시작 스폰 간격 (초)")]
-    [SerializeField] private float startSpawnInterval = 2f;
+    [SerializeField] private float startSpawnInterval = 12f;
     [Tooltip("최대 난이도에서의 스폰 간격 (초)")]
-    [SerializeField] private float endSpawnInterval = 0.45f;
+    [SerializeField] private float endSpawnInterval = 8f;
     [Tooltip("시작 최대 동시 마리수")]
-    [SerializeField] private int startMaxAlive = 6;
+    [SerializeField] private int startMaxAlive = 2;
     [Tooltip("최대 난이도에서의 최대 동시 마리수")]
-    [SerializeField] private int endMaxAlive = 24;
+    [SerializeField] private int endMaxAlive = 3;
 
     [Header("스폰 위치")]
     [Tooltip("플레이어로부터의 최소 거리")]
@@ -71,6 +73,12 @@ public class EnemySpawner : MonoBehaviour
         }
 
         if (Time.time < nextSpawnTime) return;
+
+        // 거점 경비가 도망치다 사라지는 등 Died 없이 파괴되는 경우가 있어 빈 칸을 정리한다
+        for (int i = alive.Count - 1; i >= 0; i--)
+        {
+            if (alive[i] == null) alive.RemoveAt(i);
+        }
 
         float difficulty = CurrentDifficulty();
         nextSpawnTime = Time.time + Mathf.Lerp(startSpawnInterval, endSpawnInterval, difficulty);

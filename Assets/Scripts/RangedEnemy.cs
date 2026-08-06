@@ -86,9 +86,18 @@ public class RangedEnemy : Enemy
         nextFireTime = Time.time + Random.Range(minFireInterval, maxFireInterval);
     }
 
+    /// <summary>도망가기 시작하면 조준 동작을 취소하고 크기를 되돌린다.</summary>
+    protected override void OnFleeStarted()
+    {
+        StopAllCoroutines();
+        isWindingUp = false;
+        transform.localScale = baseScale;
+    }
+
     void Throw()
     {
         if (rockPrefab == null || Target == null) return;
+        if (Mode != EnemyMode.Chase) return;   // 예비동작 중 어그로가 풀렸으면 던지지 않는다
 
         Vector3 toTarget = Target.position - transform.position;
         toTarget.y = 0f;

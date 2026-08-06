@@ -39,6 +39,10 @@ public class PlayerDash : MonoBehaviour
     [Tooltip("반격 이펙트 색")]
     [SerializeField] private Color reflectVfxColor = LightningPalette.Reflect;
 
+    [Header("거점 토템")]
+    [Tooltip("대시 한 번이 토템에 주는 피해")]
+    [SerializeField] private int totemDamage = 1;
+
     [Header("타격감")]
     [Tooltip("적 처치 순간 적용할 Time.timeScale")]
     [SerializeField, Range(0f, 1f)] private float hitStopScale = 0.05f;
@@ -103,9 +107,12 @@ public class PlayerDash : MonoBehaviour
     private readonly HashSet<Enemy> hitThisDash = new HashSet<Enemy>();
     // 한 번의 대시에서 이미 되받아친 투사체 — 같은 돌을 매 프레임 다시 튕기지 않게
     private readonly HashSet<RockProjectile> reflectedThisDash = new HashSet<RockProjectile>();
+    // 토템도 한 대시에 한 번만 맞는다 — 그러지 않으면 스치는 것만으로 체력 3이 한 번에 날아간다
+    private readonly HashSet<CampTotem> hitTotemsThisDash = new HashSet<CampTotem>();
     private readonly Collider[] overlapBuffer = new Collider[32];
     private Coroutine hitStopRoutine;
     private int killsThisDash;
+    private int totemHitsThisDash;
     private Vector3 dashDirection = Vector3.forward;
 
     /// <summary>돌진 중인지 여부. PlayerMovement가 일반 이동을 막는 데 사용.</summary>
@@ -186,6 +193,7 @@ public class PlayerDash : MonoBehaviour
         isDashing = false;
         hitThisDash.Clear();
         reflectedThisDash.Clear();
+        hitTotemsThisDash.Clear();
 
         if (aimLine != null) aimLine.enabled = false;
         RestoreTimeScale();
@@ -290,7 +298,9 @@ public class PlayerDash : MonoBehaviour
 
         hitThisDash.Clear();
         reflectedThisDash.Clear();
+        hitTotemsThisDash.Clear();
         killsThisDash = 0;
+        totemHitsThisDash = 0;
 
         // 거의 제자리면 대시를 생략하되 쿨다운은 동일하게 적용
         if (delta.sqrMagnitude > 0.0001f && dashDuration > 0f)
@@ -329,16 +339,21 @@ public class PlayerDash : MonoBehaviour
             SlashVfx.Play(transform.position + Vector3.up * 0.5f, dashVfxColor, 14, 0.25f, 5f);
         }
 
-        // 하나라도 베었으면 쿨다운 없이 바로 다음 조준 가능 (연속 베기 체인)
-        bool chain = resetCooldownOnKill && killsThisDash > 0;
+        // 뭔가를 맞혔으면 쿨다운 없이 바로 다음 조준 가능 (연속 베기 체인).
+        // 토템도 포함 — 아니면 거점을 부수는 동안만 유독 답답해진다.
+        bool chain = resetCooldownOnKill && (killsThisDash > 0 || totemHitsThisDash > 0);
         cooldownEndTime = chain ? 0f : Time.unscaledTime + cooldown;
 
         // 콤보는 쿨다운보다 관대하게 — 반사만 성공해도 끊기지 않는다
         if (ScoreSystem.Instance != null)
-            ScoreSystem.Instance.OnDashResolved(killsThisDash > 0 || reflectedThisDash.Count > 0);
+        {
+            ScoreSystem.Instance.OnDashResolved(
+                killsThisDash > 0 || totemHitsThisDash > 0 || reflectedThisDash.Count > 0);
+        }
 
         hitThisDash.Clear();
         reflectedThisDash.Clear();
+        hitTotemsThisDash.Clear();
     }
 
     /// <summary>
@@ -369,11 +384,30 @@ public class PlayerDash : MonoBehaviour
                 continue;
             }
 
+            CampTotem totem = col.GetComponentInParent<CampTotem>();
+            if (totem != null)
+            {
+                SlashTotem(totem);
+                continue;
+            }
+
             if (!reflectProjectiles) continue;
 
             RockProjectile rock = col.GetComponentInParent<RockProjectile>();
             if (rock != null) ReflectProjectile(rock);
         }
+    }
+
+    void SlashTotem(CampTotem totem)
+    {
+        if (totem.IsDead) return;
+        if (!hitTotemsThisDash.Add(totem)) return;
+
+        totem.TakeDamage(totemDamage);
+        totemHitsThisDash++;
+
+        PlayKillSparks(totem.transform.position);
+        TriggerHitStop();
     }
 
     void SlashEnemy(Enemy enemy)

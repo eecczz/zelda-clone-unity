@@ -7,6 +7,7 @@ public enum GameState
     Ready,
     Playing,
     GameOver,
+    Victory,
 }
 
 /// <summary>
@@ -23,6 +24,12 @@ public class GameManager : MonoBehaviour
     [Tooltip("게임오버 화면이 뜨기까지의 시간 (초, 실제 시간 기준)")]
     [SerializeField] private float deathSequenceDuration = 0.8f;
 
+    [Header("승리 연출")]
+    [Tooltip("거점을 전부 정리한 뒤 결과 화면까지의 시간 (초, 실제 시간 기준)")]
+    [SerializeField] private float victorySequenceDuration = 1.2f;
+    [Tooltip("승리 연출 동안의 timeScale")]
+    [SerializeField, Range(0.01f, 1f)] private float victorySlowScale = 0.35f;
+
     [Header("입력")]
     [SerializeField] private KeyCode restartKey = KeyCode.R;
 
@@ -32,8 +39,11 @@ public class GameManager : MonoBehaviour
 
     public GameState State { get; private set; } = GameState.Ready;
 
-    /// <summary>플레이 입력을 받아도 되는 상태인지. 사망 연출 중에는 false.</summary>
-    public bool IsPlaying => State == GameState.Playing && !isDying;
+    /// <summary>플레이 입력을 받아도 되는 상태인지. 사망/승리 연출 중에는 false.</summary>
+    public bool IsPlaying => State == GameState.Playing && !isDying && !isFinishing;
+
+    /// <summary>승리한 시각까지 걸린 플레이 시간 (초).</summary>
+    public float ClearTime { get; private set; }
 
     /// <summary>
     /// 게임을 시작시킨 바로 그 프레임인지.
@@ -45,6 +55,7 @@ public class GameManager : MonoBehaviour
     public float PlayTime => State == GameState.Ready ? 0f : Time.time - playStartTime;
 
     private bool isDying;
+    private bool isFinishing;
     private int startFrame = -1;
     private float playStartTime;
     private float defaultFixedDeltaTime;
@@ -74,8 +85,14 @@ public class GameManager : MonoBehaviour
                 if (Input.GetMouseButtonDown(0)) StartGame();
                 break;
 
+            case GameState.Playing:
+                // 거점이 하나도 없는 씬에서는 승리 조건이 성립하지 않는다
+                if (!isDying && !isFinishing && EnemyCamp.AllCleared) StartCoroutine(VictorySequence());
+                break;
+
             case GameState.GameOver:
-                if (!isDying && Input.GetKeyDown(restartKey)) Restart();
+            case GameState.Victory:
+                if (!isDying && !isFinishing && Input.GetKeyDown(restartKey)) Restart();
                 break;
         }
     }
@@ -118,6 +135,33 @@ public class GameManager : MonoBehaviour
 
         isDying = false;
         State = GameState.GameOver;
+    }
+
+    IEnumerator VictorySequence()
+    {
+        isFinishing = true;
+        ClearTime = PlayTime;
+
+        // 마지막 거점이 터지는 걸 보여주고 나서 결과 화면으로 넘어간다
+        if (playerDash != null) playerDash.CancelAll();
+
+        Time.timeScale = victorySlowScale;
+        Time.fixedDeltaTime = defaultFixedDeltaTime * victorySlowScale;
+
+        yield return new WaitForSecondsRealtime(victorySequenceDuration);
+
+        Time.timeScale = 0f;
+        Time.fixedDeltaTime = defaultFixedDeltaTime;
+
+        isFinishing = false;
+        State = GameState.Victory;
+    }
+
+    /// <summary>초를 m:ss로. 결과 화면 표시용.</summary>
+    public static string FormatTime(float seconds)
+    {
+        int total = Mathf.Max(0, Mathf.FloorToInt(seconds));
+        return $"{total / 60}:{total % 60:00}";
     }
 
     public void Restart()
